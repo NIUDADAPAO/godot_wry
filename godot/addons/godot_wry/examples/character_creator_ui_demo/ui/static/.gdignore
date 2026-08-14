@@ -1,0 +1,1 @@
+Svelte source static assets; runtime uses build/ instead. Ignored by Godot to avoid UID duplicates with build/.

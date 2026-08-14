@@ -6,7 +6,8 @@ mod protocols;
 use godot::global::MouseButtonMask;
 use godot::init::*;
 use godot::prelude::*;
-use godot::classes::{Control, DisplayServer, IControl, InputEvent, InputEventMouseButton, InputEventMouseMotion, InputEventKey, ProjectSettings, Viewport};
+use godot::classes::{Control, DisplayServer, IControl, Input, InputEvent, InputEventMouseButton, InputEventMouseMotion, InputEventKey, ProjectSettings, Viewport};
+use godot::obj::Singleton;
 use godot::global::{Key, MouseButton};
 use lazy_static::lazy_static;
 use serde_json;
@@ -64,7 +65,7 @@ struct WebView {
     #[export]
     devtools: bool,
     #[export]
-    headers: Dictionary,
+    headers: VarDictionary,
     #[export]
     user_agent: GString,
     #[export]
@@ -116,7 +117,8 @@ impl IControl for WebView {
 
     fn enter_tree(&mut self) {
         if self.webview.is_some() {
-            if let Some(gd_window) = self.base().get_window() {
+            let base_gd = self.base().clone();
+            if let Some(gd_window) = base_gd.get_window() {
                 let current_window_id = gd_window.get_window_id();
                 if current_window_id != self.window_id {
                     self.reparent_webview(current_window_id);
@@ -130,14 +132,26 @@ impl IControl for WebView {
     }
 
     fn input(&mut self, event: Gd<InputEvent>) {
+        let base_gd = self.base().clone();
+        {
+            if let Ok(mb) = event.clone().try_cast::<InputEventMouseButton>() {
+                godot_print!("[WRY-DBG] _input got InputEventMouseButton: idx={} mask={} pressed={} pos={}",
+                    mb.get_button_index().ord(), mb.get_button_mask().ord(), mb.is_pressed(), mb.get_position());
+            }
+            if let Ok(mm) = event.clone().try_cast::<InputEventMouseMotion>() {
+                godot_print!("[WRY-DBG] _input got InputEventMouseMotion: mask={} pos={} rel={}",
+                    mm.get_button_mask().ord(), mm.get_position(), mm.get_relative());
+            }
+        }
+
         if self.webview.is_none() || self.full_window_size {
             return;
         }
 
         if let Ok(mouse_event) = event.try_cast::<InputEventMouseButton>() {
             if mouse_event.is_pressed() {
-                let mouse_pos = self.base().get_global_mouse_position();
-                let rect = self.base().get_global_rect();
+                let mouse_pos = base_gd.get_global_mouse_position();
+                let rect = base_gd.get_global_rect();
 
                 if !rect.contains_point(mouse_pos) {
                     if let Some(webview) = &self.webview {
@@ -165,25 +179,26 @@ impl WebView {
         if self.webview.is_none() {
             return;
         }
+        let base_gd = self.base().clone();
 
-        let viewport_size = self.base().get_window()
+        let viewport_size = base_gd.get_window()
             .map(|w| w.get_size())
             .unwrap_or_else(|| {
-                self.base().get_tree().expect("Could not get tree")
-                    .get_root().expect("Could not get viewport").get_size()
+                base_gd.get_tree_or_null().expect("Could not get tree")
+                    .get_root().get_size()
             });
         let window_position = DisplayServer::singleton().window_get_position_ex().window_id(self.window_id).done();
-        let content_scale_factor = self.base().get_window()
+        let content_scale_factor = base_gd.get_window()
             .map(|w| w.get_content_scale_factor())
             .unwrap_or(1.0);
 
-        let needs_resize = self.base().get_global_position() != self.previous_global_position
+        let needs_resize = base_gd.get_global_position() != self.previous_global_position
             || viewport_size != self.previous_viewport_size
             || window_position != self.previous_window_position
             || content_scale_factor != self.previous_content_scale_factor;
 
         if needs_resize {
-            self.previous_global_position = self.base().get_global_position();
+            self.previous_global_position = base_gd.get_global_position();
             self.previous_viewport_size = viewport_size;
             self.previous_window_position = window_position;
             self.previous_content_scale_factor = content_scale_factor;
@@ -198,7 +213,7 @@ impl WebView {
 
     fn build_webview(&mut self) {
         let display_server = DisplayServer::singleton();
-        if display_server.get_name() == "headless".into()
+        if display_server.get_name() == GString::from("headless")
         {
             godot_warn!("Godot WRY: Headless mode detected. webview will not be created.");
             return;
@@ -207,7 +222,8 @@ impl WebView {
         #[cfg(target_os = "linux")]
         gtk::init().expect("Failed to initialize GTK");
 
-        let window_id = self.base().get_window()
+        let base_gd = self.base().clone();
+        let window_id = base_gd.get_window()
             .map(|w| w.get_window_id())
             .unwrap_or(0);
         self.window_id = window_id;
@@ -233,7 +249,7 @@ impl WebView {
             };
         }
 
-        let base = Arc::new(Mutex::new(self.base().clone()));
+        let base = Arc::new(Mutex::new(base_gd.clone()));
         let resolved_data_directory: Option<PathBuf> = if !self.data_directory.is_empty() {
             let data_directory = self.data_directory.to_string();
 
@@ -299,17 +315,18 @@ impl WebView {
                                     
                                     let button_mask = CURRENT_BUTTON_MASK.lock().unwrap();
                                     event.set_button_mask(*button_mask);
+                                    godot_print!("[WRY-DBG] _mouse_move: mask={}", button_mask.ord());
 
                                     event.set_relative(Vector2::new(movement_x, movement_y));
                                     
-                                    if let Some(mut viewport) = base.get_viewport() {
-                                        viewport.push_input(&event);
-                                    }
+                                    let mut input = Input::singleton();
+                                    input.parse_input_event(&event);
                                     return;
                                 },
                                 
                                 "_mouse_down" | "_mouse_up" => {
                                     let button = json_value.get("button").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                                    godot_print!("[WRY-DBG] ipc={} js_button={} pos=({},{})", event_type, button, vp_x, vp_y);
                                     
                                     let godot_button = match button {
                                         0 => MouseButton::LEFT,
@@ -319,6 +336,7 @@ impl WebView {
                                         4 => MouseButton::WHEEL_DOWN,
                                         _ => MouseButton::LEFT, // default to left button
                                     };
+                                    godot_print!("[WRY-DBG] godot_button.ord={} pressed={}", godot_button.ord(), event_type == "_mouse_down");
                                     
                                     let pressed = event_type == "_mouse_down";
                                     let mask = match godot_button {
@@ -352,6 +370,7 @@ impl WebView {
                                                 _ => {}
                                             }
                                         }
+                                        godot_print!("[WRY-DBG] CURRENT_BUTTON_MASK -> {}", button_mask.ord());
                                     }
                                     
                                     let mut event = InputEventMouseButton::new_gd();
@@ -362,10 +381,12 @@ impl WebView {
                                     
                                     let button_mask = CURRENT_BUTTON_MASK.lock().unwrap();
                                     event.set_button_mask(*button_mask);
+
+                                    godot_print!("[WRY-DBG] event readback: idx={} mask={} pressed={}",
+                                        event.get_button_index().ord(), event.get_button_mask().ord(), event.is_pressed());
                                     
-                                    if let Some(mut viewport) = base.get_viewport() {
-                                        viewport.push_input(&event);
-                                    }
+                                    let mut input = Input::singleton();
+                                    input.parse_input_event(&event);
                                     return;
                                 },
 
@@ -412,9 +433,8 @@ impl WebView {
                                     event.set_alt_pressed(json_value.get("alt").and_then(|v| v.as_bool()).unwrap_or(false));
                                     event.set_meta_pressed(json_value.get("meta").and_then(|v| v.as_bool()).unwrap_or(false));
                                     
-                                    if let Some(mut viewport) = base.get_viewport() {
-                                        viewport.push_input(&event);
-                                    }
+                                    let mut input = Input::singleton();
+                                    input.parse_input_event(&event);
                                     return;
                                 },
                                 
@@ -537,11 +557,12 @@ impl WebView {
             return;
         }
 
-        let mut viewport = self.base().get_tree().expect("Could not get tree").get_root().expect("Could not get viewport");
-        viewport.connect("size_changed", &Callable::from_object_method(&*self.base(), "resize"));
+        let base_gd = self.base().clone();
+        let mut viewport = base_gd.get_tree_or_null().expect("Could not get tree").get_root();
+        viewport.connect("size_changed", &Callable::from_object_method(&base_gd, "resize"));
 
-        self.base().clone().connect("resized", &Callable::from_object_method(&*self.base(), "resize"));
-        self.base().clone().connect("visibility_changed", &Callable::from_object_method(&*self.base(), "update_visibility"));
+        base_gd.clone().connect("resized", &Callable::from_object_method(&base_gd, "resize"));
+        base_gd.clone().connect("visibility_changed", &Callable::from_object_method(&base_gd, "update_visibility"));
     }
 
     fn reparent_webview(&mut self, new_window_id: i32) {
@@ -590,8 +611,8 @@ impl WebView {
                 let window_size = self.base().get_window()
                     .map(|w| w.get_size())
                     .unwrap_or_else(|| {
-                        self.base().get_tree().expect("Could not get tree")
-                            .get_root().expect("Could not get viewport").get_size()
+                        self.base().get_tree_or_null().expect("Could not get tree")
+                            .get_root().get_size()
                     });
                 Rect {
                     position: PhysicalPosition::new(0, 0).into(),
@@ -750,6 +771,25 @@ impl WebView {
         if let Some(webview) = &self.webview {
             let _ = webview.zoom(scale_factor);
         }
+    }
+
+    #[func]
+    fn debug_button_event(&self) -> i64 {
+        let mut event = InputEventMouseButton::new_gd();
+        event.set_button_index(MouseButton::LEFT);
+        event.set_pressed(true);
+        let mask = MouseButtonMask::LEFT | MouseButtonMask::RIGHT;
+        event.set_button_mask(mask);
+        let idx = event.get_button_index().ord();
+        let msk = event.get_button_mask().ord();
+        godot_print!("[WRY-DBG] debug_button_event readback: idx={} mask={}", idx, msk);
+
+        let mut event2 = InputEventMouseButton::new_gd();
+        event2.set_button_index(MouseButton::WHEEL_UP);
+        event2.set_pressed(true);
+        let idx2 = event2.get_button_index().ord();
+        godot_print!("[WRY-DBG] debug_button_event wheel readback: idx={}", idx2);
+        msk as i64
     }
 }
 

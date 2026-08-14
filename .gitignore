@@ -16,3 +16,7 @@ dist/
 bin/
 .DS_Store
 .env
+_tools/
+godot_wry_4.7.1_addon.zip
+.workbuddy/
+*.tmp

@@ -4,6 +4,9 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   title: "Godot WRY",
   description: "Cross-platform webview extension for Godot 4",
+  // GitHub Pages project site (https://<user>.github.io/<repo>/)
+  // base must be set so asset paths and internal links resolve correctly
+  base: "/godot_wry/",
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
     nav: [

@@ -47,6 +47,11 @@ jobs:
       - name: Build binaries
         run: just ${{ matrix.platform.target == 'universal-apple-darwin' && 'build-macos-universal' || 'build' }}
 
+      - name: Copy binaries into addon layout
+        run: |
+          mkdir -p godot/addons/godot_wry/bin/${{ matrix.platform.target }}
+          cp -R shared/godot_test/addons/godot_wry/bin/${{ matrix.platform.target }}/* godot/addons/godot_wry/bin/${{ matrix.platform.target }}/
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

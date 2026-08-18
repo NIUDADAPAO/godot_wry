@@ -32,16 +32,16 @@ _build-windows:
 	cargo build --target {{target}} --locked --release
 
 _copy-to-godot-macos:
-	mkdir -p ../godot/addons/godot_wry/bin/{{target}}
-	cp -R ./target/{{target}}/release/libgodot_wry.framework ../godot/addons/godot_wry/bin/{{target}}
+	mkdir -p ../shared/godot_test/addons/godot_wry/bin/{{target}}
+	cp -R ./target/{{target}}/release/libgodot_wry.framework ../shared/godot_test/addons/godot_wry/bin/{{target}}
 
 _copy-to-godot-linux:
-	mkdir -p ../godot/addons/godot_wry/bin/{{target}}
-	cp ./target/{{target}}/release/libgodot_wry.so ../godot/addons/godot_wry/bin/{{target}}/
+	mkdir -p ../shared/godot_test/addons/godot_wry/bin/{{target}}
+	cp ./target/{{target}}/release/libgodot_wry.so ../shared/godot_test/addons/godot_wry/bin/{{target}}/
 
 _copy-to-godot-windows:
-	mkdir -p ../godot/addons/godot_wry/bin/{{target}}
-	cp ./target/{{target}}/release/godot_wry.dll ../godot/addons/godot_wry/bin/{{target}}/
+	mkdir -p ../shared/godot_test/addons/godot_wry/bin/{{target}}
+	cp ./target/{{target}}/release/godot_wry.dll ../shared/godot_test/addons/godot_wry/bin/{{target}}/
 
 build-all: build-macos-universal build-linux build-windows
 
@@ -53,8 +53,8 @@ build-macos-universal:
 	lipo -create -output ./target/release/libgodot_wry.dylib ./target/aarch64-apple-darwin/release/libgodot_wry.dylib ./target/x86_64-apple-darwin/release/libgodot_wry.dylib
 	mv ./target/release/libgodot_wry.dylib ./target/release/libgodot_wry.framework/libgodot_wry.dylib
 	cp ../assets/Info.plist ./target/release/libgodot_wry.framework/Resources/Info.plist
-	mkdir -p ../godot/addons/godot_wry/bin/universal-apple-darwin
-	cp -R ./target/release/libgodot_wry.framework ../godot/addons/godot_wry/bin/universal-apple-darwin
+	mkdir -p ../shared/godot_test/addons/godot_wry/bin/universal-apple-darwin
+	cp -R ./target/release/libgodot_wry.framework ../shared/godot_test/addons/godot_wry/bin/universal-apple-darwin
 
 build-linux:
 	@echo "Building for Linux..."
